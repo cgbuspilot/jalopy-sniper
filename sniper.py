@@ -1,7 +1,9 @@
 import os
 import requests
+import time
+from playwright.sync_api import sync_playwright
 
-# Inputs from Dashboard
+# Inputs
 MAKE = os.getenv("INPUT_MAKE", "").strip().upper()
 MODEL = os.getenv("INPUT_MODEL", "").strip().upper()
 YEAR_START = int(os.getenv("INPUT_YEAR_START", 1900))
@@ -10,56 +12,53 @@ LOCATION = os.getenv("INPUT_LOCATION", "ALL").strip().upper()
 NTFY_TOPIC = "Jalopy-Sniper"
 
 def main():
-    print("Requesting Raw Inventory Feed...")
-    
-    # We are using their internal search API directly now
-    # This bypasses the website layout entirely
-    url = "https://inventory.pickapartjalopyjungle.com/inventorylist.php"
-    
-    try:
-        # We pretend to be a very basic mobile browser
-        headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)'}
-        response = requests.get(url, headers=headers, timeout=30)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
         
-        if response.status_code != 200:
-            print(f"Server refused connection: {response.status_code}")
-            return
+        print("Opening Jalopy Jungle...")
+        page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
+        time.sleep(5)
 
-        # Instead of Playwright, we are just reading the raw text
-        # This is much more reliable
-        lines = response.text.split('</tr>')
-        print(f"Successfully pulled {len(lines)} raw records.")
-        
+        # FORCE LOAD: We find the location dropdown and pick 'ALL'
+        try:
+            print("Forcing inventory to load...")
+            # This looks for the dropdown and selects the 'ALL' option (index 0 usually)
+            page.select_option('select[name="location"]', label="ALL")
+            time.sleep(5) # Wait for the table to refresh
+        except:
+            print("Could not find dropdown, attempting manual scan...")
+
         found_matches = []
-        for line in lines:
-            # Clean up HTML tags to get plain text
-            clean_text = line.replace('<td>', ' ').replace('</td>', ' ').upper()
-            parts = clean_text.split()
-            
+        # Look for every row in the table
+        rows = page.locator("tr").all_inner_texts()
+        print(f"Scanned {len(rows)} potential vehicles.")
+
+        for text in rows:
+            row_upper = text.upper()
+            parts = row_upper.split()
             if len(parts) < 3: continue
             
             try:
                 car_year = int(parts[0])
-                # Filter logic
                 if not (YEAR_START <= car_year <= YEAR_END): continue
-                if MAKE and MAKE not in clean_text: continue
-                if MODEL and MODEL not in clean_text: continue
-                if LOCATION != "ALL" and LOCATION not in clean_text: continue
+                if MAKE and MAKE not in row_upper: continue
+                if MODEL and MODEL not in row_upper: continue
+                if LOCATION != "ALL" and LOCATION not in row_upper: continue
                 
-                found_matches.append(" ".join(parts))
+                found_matches.append(text.strip())
             except:
                 continue
+
+        browser.close()
 
         if found_matches:
             summary = "\n".join(found_matches[:15])
             requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
                           data=f"🎯 JALOPY SNIPER ({len(found_matches)} Hits):\n{summary}".encode('utf-8'))
-            print(f"Success! {len(found_matches)} matches sent to phone.")
+            print("Success! Check your phone.")
         else:
-            print(f"Scanned {len(lines)} cars, but zero matches for your filters.")
-
-    except Exception as e:
-        print(f"Connection Error: {e}")
+            print(f"Found {len(rows)} rows, but nothing matched your search.")
 
 if __name__ == "__main__":
     main()
