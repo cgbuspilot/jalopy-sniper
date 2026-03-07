@@ -1,6 +1,6 @@
 import os
 import requests
-import time
+import json
 from playwright.sync_api import sync_playwright
 
 # Inputs
@@ -16,57 +16,48 @@ def main():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         
-        print(f"Opening Jalopy Jungle...")
-        page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
+        print("Interacting with Jalopy Jungle server...")
         
-        # 1. Give the site 5 seconds to load the basic layout
-        time.sleep(5)
-
-        # 2. SCROLL DOWN to trigger the database to load
-        print("Scrolling to load vehicles...")
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        time.sleep(5) # Wait for cars to appear after scroll
-
-        found_matches = []
-        vehicle_count = 0
-
-        # 3. Look at the main page AND all frames (windows) for car data
-        all_frames = page.frames
-        for frame in all_frames:
-            try:
-                # Find all table rows
-                rows = frame.locator("tr").all_inner_texts()
-                if len(rows) <= 1: continue # Skip if it's just a header
+        # We go to the page and wait for the 'XHR' (the data packet)
+        try:
+            page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
+            
+            # This is the 'Nuclear Option': We grab the raw HTML of the inventory container
+            # specifically looking for the table body after it hydrates
+            page.wait_for_selector("tbody", timeout=15000)
+            rows = page.locator("tr").all_inner_texts()
+            
+            print(f"Intercepted {len(rows)} data rows.")
+            
+            found_matches = []
+            for text in rows:
+                row_upper = text.upper()
+                if len(row_upper.split()) < 3: continue
                 
-                vehicle_count += len(rows)
-                for text in rows:
-                    row_upper = text.upper()
-                    
-                    # Basic filters
-                    if MAKE and MAKE not in row_upper: continue
-                    if MODEL and MODEL not in row_upper: continue
-                    if LOCATION != "ALL" and LOCATION not in row_upper: continue
-                    
-                    try:
-                        parts = row_upper.split()
-                        car_year = int(parts[0])
-                        if not (YEAR_START <= car_year <= YEAR_END): continue
-                        found_matches.append(text.strip())
-                    except:
-                        continue
-            except:
-                continue
-        
-        print(f"Robot successfully scanned {vehicle_count} total vehicles.")
-        browser.close()
+                # Filter Logic
+                if MAKE and MAKE not in row_upper: continue
+                if MODEL and MODEL not in row_upper: continue
+                if LOCATION != "ALL" and LOCATION not in row_upper: continue
+                
+                try:
+                    car_year = int(row_upper.split()[0])
+                    if not (YEAR_START <= car_year <= YEAR_END): continue
+                    found_matches.append(text.strip())
+                except:
+                    continue
 
-        if found_matches:
-            summary = "\n".join(found_matches[:15])
-            requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
-                          data=f"🎯 JALOPY SNIPER ({len(found_matches)} Hits):\n{summary}".encode('utf-8'))
-            print(f"Success! Notification sent with {len(found_matches)} cars.")
-        else:
-            print(f"Scanned {vehicle_count} cars, but none matched your search.")
+            if found_matches:
+                summary = "\n".join(found_matches[:15])
+                requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
+                              data=f"🎯 SNIPER HIT ({len(found_matches)}):\n{summary}".encode('utf-8'))
+                print("Notification sent!")
+            else:
+                print(f"Scanned {len(rows)} cars. No matches found.")
+
+        except Exception as e:
+            print(f"Snagged: {e}")
+        finally:
+            browser.close()
 
 if __name__ == "__main__":
     main()
