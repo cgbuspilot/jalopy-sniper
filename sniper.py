@@ -18,41 +18,39 @@ def main():
         
         print("Opening Jalopy Jungle...")
         page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
-        time.sleep(5)
+        
+        # Give the site a long time to 'hydrate' the data
+        time.sleep(10)
 
         found_matches = []
-        vehicle_count = 0
+        total_rows_seen = 0
 
-        # We need to find the right frame that contains the inventory
+        # Loop through every frame to find the hidden table
         for frame in page.frames:
             try:
-                # Check if this frame has the location dropdown
-                dropdown = frame.query_selector('select[name="location"]')
-                if dropdown:
-                    print("Found the inventory frame! Forcing 'ALL' locations...")
-                    frame.select_option('select[name="location"]', label="ALL")
-                    time.sleep(5) # Wait for table to populate
+                # Try to find all table rows in this frame
+                rows = frame.locator("tr").all_inner_texts()
+                if len(rows) < 5: continue # Skip frames that are just headers or ads
+                
+                print(f"Found a data table with {len(rows)} rows!")
+                total_rows_seen = len(rows)
+
+                for text in rows:
+                    row_upper = text.upper()
                     
-                    rows = frame.locator("tr").all_inner_texts()
-                    vehicle_count = len(rows)
+                    # Filtering
+                    if MAKE and MAKE not in row_upper: continue
+                    if MODEL and MODEL not in row_upper: continue
+                    if LOCATION != "ALL" and LOCATION not in row_upper: continue
                     
-                    for text in rows:
-                        row_upper = text.upper()
+                    try:
                         parts = row_upper.split()
-                        if len(parts) < 3: continue
-                        
-                        try:
-                            car_year = int(parts[0])
-                            if not (YEAR_START <= car_year <= YEAR_END): continue
-                            if MAKE and MAKE not in row_upper: continue
-                            if MODEL and MODEL not in row_upper: continue
-                            if LOCATION != "ALL" and LOCATION not in row_upper: continue
-                            
-                            found_matches.append(text.strip())
-                        except:
-                            continue
-                    break # We found the right frame, no need to check others
-            except Exception as e:
+                        car_year = int(parts[0])
+                        if not (YEAR_START <= car_year <= YEAR_END): continue
+                        found_matches.append(text.strip())
+                    except:
+                        continue
+            except:
                 continue
 
         browser.close()
@@ -61,9 +59,9 @@ def main():
             summary = "\n".join(found_matches[:15])
             requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
                           data=f"🎯 JALOPY SNIPER ({len(found_matches)} Hits):\n{summary}".encode('utf-8'))
-            print(f"Success! Sent {len(found_matches)} matches.")
+            print(f"Success! {len(found_matches)} matches found.")
         else:
-            print(f"Scanned {vehicle_count} rows. No matches found.")
+            print(f"Scanned {total_rows_seen} rows. No matches for your search.")
 
 if __name__ == "__main__":
     main()
