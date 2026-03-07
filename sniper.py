@@ -16,33 +16,37 @@ def main():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         
-        print(f"Opening Jalopy Jungle Main Page...")
+        print(f"Opening Jalopy Jungle...")
         page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
         
-        # Give it a moment to breathe
-        time.sleep(3)
+        # 1. Give the site 5 seconds to load the basic layout
+        time.sleep(5)
 
-        # THE SECRET SAUCE: We have to find the inner frame where the cars live
-        # and look at the 'raw' text inside of it.
+        # 2. SCROLL DOWN to trigger the database to load
+        print("Scrolling to load vehicles...")
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        time.sleep(5) # Wait for cars to appear after scroll
+
         found_matches = []
         vehicle_count = 0
 
-        for frame in page.frames:
-            # We want the frame that actually has vehicle data
-            content = frame.content().upper()
-            if "YEAR" in content and "MAKE" in content:
+        # 3. Look at the main page AND all frames (windows) for car data
+        all_frames = page.frames
+        for frame in all_frames:
+            try:
+                # Find all table rows
                 rows = frame.locator("tr").all_inner_texts()
-                vehicle_count = len(rows)
+                if len(rows) <= 1: continue # Skip if it's just a header
                 
+                vehicle_count += len(rows)
                 for text in rows:
                     row_upper = text.upper()
-                    # We look for the MAKE and MODEL anywhere in the line 
-                    # This prevents the 'Make vs Model' confusion
+                    
+                    # Basic filters
                     if MAKE and MAKE not in row_upper: continue
                     if MODEL and MODEL not in row_upper: continue
                     if LOCATION != "ALL" and LOCATION not in row_upper: continue
                     
-                    # Try to pull the year out of the start of the line
                     try:
                         parts = row_upper.split()
                         car_year = int(parts[0])
@@ -50,19 +54,19 @@ def main():
                         found_matches.append(text.strip())
                     except:
                         continue
+            except:
+                continue
         
-        print(f"Robot scanned {vehicle_count} total vehicles.")
+        print(f"Robot successfully scanned {vehicle_count} total vehicles.")
         browser.close()
 
         if found_matches:
             summary = "\n".join(found_matches[:15])
             requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
                           data=f"🎯 JALOPY SNIPER ({len(found_matches)} Hits):\n{summary}".encode('utf-8'))
-            print(f"Sent {len(found_matches)} matches!")
-        elif vehicle_count == 0:
-            print("ERROR: Robot didn't see any vehicles. The website layout might have changed.")
+            print(f"Success! Notification sent with {len(found_matches)} cars.")
         else:
-            print(f"Scanned {vehicle_count} cars, but none matched your filters.")
+            print(f"Scanned {vehicle_count} cars, but none matched your search.")
 
 if __name__ == "__main__":
     main()
