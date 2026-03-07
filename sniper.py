@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 
 # --- CONFIGURATION ---
 # Add or remove cars here. Keep them in quotes and all CAPS.
-TARGET_CARS = ["2005 TOYOTA TUNDRA", "1998 HONDA CIVIC", "2001 JEEP CHEROKEE"]
+TARGET_CARS = ["CHEVROLET COLORADO"]
 NTFY_TOPIC = "Jalopy-Sniper" 
 # ---------------------
 
