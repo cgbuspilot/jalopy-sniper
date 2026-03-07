@@ -1,0 +1,27 @@
+name: Daily Inventory Check
+
+on:
+  schedule:
+    # This runs it every day at 12:00 PM UTC (about 5:00 AM Pacific)
+    - cron: '0 12 * * *'
+  workflow_dispatch: # This adds a "Run Now" button so you can test it
+
+jobs:
+  check-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          playwright install chromium
+
+      - name: Run Sniper
+        run: python sniper.py
