@@ -3,87 +3,77 @@ import requests
 import time
 from playwright.sync_api import sync_playwright
 
-# Inputs
-MAKE = os.getenv("INPUT_MAKE", "").strip().upper()
-MODEL = os.getenv("INPUT_MODEL", "").strip().upper()
-YEAR_START = int(os.getenv("INPUT_YEAR_START", 1900))
-YEAR_END = int(os.getenv("INPUT_YEAR_END", 2026))
-NTFY_TOPIC = "Jalopy-Sniper"
-
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # Use a high-res window so menus don't collapse into 'mobile mode'
-        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        # Use a real browser signature to avoid being blocked
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
         page = context.new_page()
         
-        print(f"🚀 Starting Multi-Yard Search for: {MAKE} {MODEL}")
-        page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle", timeout=60000)
+        print("🚀 Testing Boise Yard: Toyota RAV4")
+        page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
         
-        # Wait for the frame to actually exist
-        page.wait_for_selector("iframe", timeout=20000)
-        time.sleep(5) 
-        
-        found_matches = []
-        
-        # Look for the frame containing 'location'
-        target_frame = None
+        # Give the site a few seconds to load the basic layout
+        time.sleep(5)
+
+        # We search inside all frames to find where the search tools live
+        target = None
         for frame in page.frames:
-            if "inventory" in frame.url or frame.query_selector('select[name="location"]'):
-                target_frame = frame
+            if frame.query_selector('select[name="location"]'):
+                target = frame
                 break
         
-        if not target_frame:
-            print("❌ Error: Search form is still hidden. Trying a deep-page scan...")
-            target_frame = page # Fallback to main page
+        if not target:
+            print("❌ Error: Could not find the search menus.")
+            browser.close()
+            return
 
         try:
-            # Get all locations
-            locations = target_frame.eval_on_selector_all(
-                'select[name="location"] option', 
-                'nodes => nodes.map(n => n.label).filter(l => l && !l.includes("Select"))'
-            )
-            print(f"✅ Found {len(locations)} yards: {locations}")
+            # 1. SELECT LOCATION (BOISE)
+            print("Selecting Location: BOISE...")
+            target.select_option('select[name="location"]', label="BOISE")
+            time.sleep(2) # Essential: wait for 'Make' to update
 
-            for loc in locations:
-                print(f"🔍 Checking {loc}...")
-                target_frame.select_option('select[name="location"]', label=loc)
-                time.sleep(2)
-                
-                if MAKE:
-                    target_frame.select_option('select[name="make"]', label=MAKE)
-                    time.sleep(1)
-                if MODEL:
-                    # Some sites require a second to load the model list after picking the make
-                    target_frame.select_option('select[name="model"]', label=MODEL)
-                    time.sleep(1)
-                
-                target_frame.click('input[type="submit"]')
-                time.sleep(4) 
+            # 2. SELECT MAKE (TOYOTA)
+            print("Selecting Make: TOYOTA...")
+            target.select_option('select[name="make"]', label="TOYOTA")
+            time.sleep(2) # Essential: wait for 'Model' to update
 
-                rows = target_frame.locator("tr").all_inner_texts()
-                for text in rows:
-                    if "YEAR" in text.upper() or len(text.split()) < 3: continue
-                    try:
-                        car_year = int(text.split()[0])
-                        if YEAR_START <= car_year <= YEAR_END:
-                            match_entry = f"📍 {loc}: {text.strip()}"
-                            found_matches.append(match_entry)
-                            print(f"✨ MATCH: {match_entry}")
-                    except:
-                        continue
+            # 3. SELECT MODEL (RAV4)
+            print("Selecting Model: RAV4...")
+            target.select_option('select[name="model"]', label="RAV4")
+            time.sleep(1)
+
+            # 4. CLICK SEARCH
+            print("Clicking Search...")
+            target.click('input[type="submit"]')
+            time.sleep(5) # Wait for the table to refresh
+
+            # 5. SCRAPE RESULTS
+            rows = target.locator("tr").all_inner_texts()
+            found_matches = []
+            
+            for text in rows:
+                if "YEAR" in text.upper() or len(text.split()) < 3:
+                    continue
+                found_matches.append(f"📍 BOISE: {text.strip()}")
+
+            if found_matches:
+                print(f"✅ Success! Found {len(found_matches)} vehicles:")
+                for car in found_matches:
+                    print(f"  - {car}")
+                
+                # Send one test notification to your phone
+                report = "\n".join(found_matches)
+                requests.post("https://ntfy.sh/Jalopy-Sniper", 
+                              data=f"🎯 BOISE TEST SUCCESS:\n{report}".encode('utf-8'))
+            else:
+                print("🏁 Search finished, but the robot saw 0 cars. The table might be empty.")
+
         except Exception as e:
-            print(f"⚠️ Encountered a snag: {e}")
+            print(f"⚠️ Test Snag: {e}")
 
         browser.close()
-
-        if found_matches:
-            report = "\n".join(found_matches[:20])
-            requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
-                          data=f"🎯 JALOPY SNIPER HITS ({len(found_matches)}):\n{report}".encode('utf-8'))
-            print("📢 Notification sent!")
-        else:
-            print("🏁 Scan complete. No matches found today.")
 
 if __name__ == "__main__":
     main()
