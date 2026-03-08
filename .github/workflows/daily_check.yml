@@ -15,11 +15,11 @@ on:
         default: ''
       year_start:
         description: 'Earliest Year'
-        required: true
+        required: false
         default: '1995'
       year_end:
         description: 'Latest Year'
-        required: true
+        required: false
         default: '2005'
       location:
         description: 'Location'
