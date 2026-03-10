@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       make:
-        description: 'Make (e.g. TOYOTA)'
+        description: 'Make'
         required: true
         default: 'TOYOTA'
       model:
-        description: 'Model (e.g. YARIS)'
+        description: 'Model'
         required: true
         default: 'YARIS'
 
