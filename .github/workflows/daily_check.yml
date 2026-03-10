@@ -1,52 +1,48 @@
 name: Jalopy Sniper Dashboard
 
 on:
-  schedule:
-    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       make:
-        description: 'Car Make (e.g. TOYOTA)'
+        description: 'Vehicle Make (e.g., TOYOTA)'
         required: true
         default: 'TOYOTA'
       model:
-        description: 'Car Model (e.g. TUNDRA)'
-        required: false
-        default: ''
+        description: 'Vehicle Model (e.g., RAV4)'
+        required: true
+        default: 'RAV4'
       year_start:
         description: 'Earliest Year'
         required: false
-        default: '1995'
+        default: '1900'
       year_end:
         description: 'Latest Year'
         required: false
-        default: '2005'
-      location:
-        description: 'Location'
-        type: choice
-        options:
-          - ALL
-          - BOISE
-          - CALDWELL
-          - NAMPA
-          - GARDEN CITY
-          - TWIN FALLS
+        default: '2026'
 
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    env:
-      INPUT_MAKE: ${{ github.event.inputs.make }}
-      INPUT_MODEL: ${{ github.event.inputs.model }}
-      INPUT_YEAR_START: ${{ github.event.inputs.year_start }}
-      INPUT_YEAR_END: ${{ github.event.inputs.year_end }}
-      INPUT_LOCATION: ${{ github.event.inputs.location }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
-          python-version: '3.9'
-      - run: |
+          clean: true # This ensures a fresh environment every time
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
           pip install playwright requests
           playwright install chromium
-      - run: python sniper.py
+
+      - name: Run Sniper
+        env:
+          INPUT_MAKE: ${{ github.event.inputs.make }}
+          INPUT_MODEL: ${{ github.event.inputs.model }}
+          INPUT_YEAR_START: ${{ github.event.inputs.year_start }}
+          INPUT_YEAR_END: ${{ github.event.inputs.year_end }}
+        run: python sniper.py
