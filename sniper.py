@@ -3,70 +3,73 @@ import requests
 import time
 from playwright.sync_api import sync_playwright
 
+# Safer input handling
 MAKE = os.getenv("INPUT_MAKE", "TOYOTA").strip().upper()
 MODEL = os.getenv("INPUT_MODEL", "RAV4").strip().upper()
 NTFY_TOPIC = "Jalopy-Sniper"
 
 def main():
     with sync_playwright() as p:
+        # Launching with a real-looking browser signature
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(viewport={'width': 1280, 'height': 800})
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080}
+        )
         page = context.new_page()
         
-        print(f"🚀 Boise Precision Hunt: {MAKE} {MODEL}")
-        page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
-        time.sleep(5)
-
-        # FIND THE RIGHT WINDOW
-        target = None
-        for frame in page.frames:
-            if frame.query_selector('select[name="location"]'):
-                target = frame
-                break
+        print(f"🚀 Starting Stealth Hunt for: {MAKE} {MODEL}")
         
-        if not target:
-            print("❌ Critical Error: Could not find the search window.")
-            browser.close()
-            return
-
         try:
-            # STEP 1: SELECT BOISE
-            print("Selecting BOISE...")
-            target.select_option('select[name="location"]', label="BOISE")
-            time.sleep(4) # Let the 'Make' list load
+            # Go to the main entry point
+            page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle", timeout=60000)
+            time.sleep(5) 
 
-            # STEP 2: SELECT MAKE (With Retry Logic)
-            print(f"Trying to find {MAKE} in the list...")
-            # We wait up to 15 seconds specifically for the TOYOTA option to exist
-            target.wait_for_selector(f'select[name="make"] option:has-text("{MAKE}")', timeout=15000)
-            target.select_option('select[name="make"]', label=MAKE)
-            time.sleep(4) # Let the 'Model' list load
+            # Check if we are stuck behind an iframe
+            search_frame = None
+            for frame in page.frames:
+                if frame.query_selector('select[name="location"]'):
+                    search_frame = frame
+                    break
+            
+            if not search_frame:
+                print(f"❌ Form not found. Page Title: {page.title()}")
+                page.screenshot(path="bot_view.png")
+                browser.close()
+                return
 
-            # STEP 3: SELECT MODEL
-            print(f"Trying to find {MODEL} in the list...")
-            target.wait_for_selector(f'select[name="model"] option:has-text("{MODEL}")', timeout=15000)
-            target.select_option('select[name="model"]', label=MODEL)
+            # Proceed with the clicks
+            print("✅ Form found! Selecting BOISE...")
+            search_frame.select_option('select[name="location"]', label="BOISE")
+            time.sleep(4) # Extra time for the 'Make' list to load
+
+            print(f"Selecting {MAKE}...")
+            search_frame.wait_for_selector(f'select[name="make"] option:has-text("{MAKE}")', timeout=10000)
+            search_frame.select_option('select[name="make"]', label=MAKE)
+            time.sleep(4) # Extra time for the 'Model' list to load
+
+            print(f"Selecting {MODEL}...")
+            search_frame.wait_for_selector(f'select[name="model"] option:has-text("{MODEL}")', timeout=10000)
+            search_frame.select_option('select[name="model"]', label=MODEL)
             time.sleep(2)
 
-            # STEP 4: CLICK SEARCH
-            print("Submitting search...")
-            target.click('input[type="submit"]')
-            time.sleep(6) 
+            search_frame.click('input[type="submit"]')
+            print("Search submitted. Waiting for table...")
+            time.sleep(6)
 
-            # STEP 5: CAPTURE THE PRIZE
-            rows = target.locator("tr").all_inner_texts()
-            # Look for rows that contain both Toyota AND Rav4
+            rows = search_frame.locator("tr").all_inner_texts()
             found = [r.strip() for r in rows if MAKE in r.upper() and MODEL in r.upper()]
             
             if found:
-                print(f"✅ BINGO! Found {len(found)} cars.")
+                print(f"✅ Success! Found {len(found)} results.")
                 report = "\n".join(found)
                 requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=f"🎯 BOISE HIT:\n{report}".encode('utf-8'))
             else:
-                print("🏁 No cars found in the table. The yard might be out, or the scan failed.")
-                
+                print("🏁 Search completed, but no cars found in the table.")
+
         except Exception as e:
-            print(f"⚠️ Hunt interrupted: {e}")
+            print(f"⚠️ Hunt Snag: {e}")
+            page.screenshot(path="error_view.png")
 
         browser.close()
 
