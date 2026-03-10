@@ -1,49 +1,77 @@
-name: Jalopy Sniper Dashboard
+import os
+import requests
+import time
+from playwright.sync_api import sync_playwright
 
-on:
-  workflow_dispatch:
-    inputs:
-      make:
-        description: 'Vehicle Make (e.g., TOYOTA)'
-        required: true
-        default: 'TOYOTA'
-      model:
-        description: 'Vehicle Model (e.g., RAV4)'
-        required: true
-        default: 'RAV4'
-      # We keep these here but set required to false so they don't block you
-      year_start:
-        description: 'Earliest Year (Optional)'
-        required: false
-        default: '1900'
-      year_end:
-        description: 'Latest Year (Optional)'
-        required: false
-        default: '2026'
+# Safer input handling
+MAKE = os.getenv("INPUT_MAKE", "TOYOTA").strip().upper()
+MODEL = os.getenv("INPUT_MODEL", "RAV4").strip().upper()
+NTFY_TOPIC = "Jalopy-Sniper"
 
-jobs:
-  hunt:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          clean: true
+def main():
+    with sync_playwright() as p:
+        # Launching with a real-looking browser signature
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080}
+        )
+        page = context.new_page()
+        
+        print(f"🚀 Starting Stealth Hunt for: {MAKE} {MODEL}")
+        
+        try:
+            # Go to the main entry point
+            page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle", timeout=60000)
+            time.sleep(5) 
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+            # Check if we are stuck behind an iframe
+            search_frame = None
+            for frame in page.frames:
+                if frame.query_selector('select[name="location"]'):
+                    search_frame = frame
+                    break
+            
+            if not search_frame:
+                print(f"❌ Form not found. Page Title: {page.title()}")
+                page.screenshot(path="bot_view.png")
+                browser.close()
+                return
 
-      - name: Install Dependencies
-        run: |
-          pip install playwright requests
-          playwright install chromium
+            # Proceed with the clicks
+            print("✅ Form found! Selecting BOISE...")
+            search_frame.select_option('select[name="location"]', label="BOISE")
+            time.sleep(4) # Extra time for the 'Make' list to load
 
-      - name: Run Sniper
-        env:
-          INPUT_MAKE: ${{ github.event.inputs.make }}
-          INPUT_MODEL: ${{ github.event.inputs.model }}
-          INPUT_YEAR_START: ${{ github.event.inputs.year_start }}
-          INPUT_YEAR_END: ${{ github.event.inputs.year_end }}
-        run: python sniper.py
+            print(f"Selecting {MAKE}...")
+            search_frame.wait_for_selector(f'select[name="make"] option:has-text("{MAKE}")', timeout=10000)
+            search_frame.select_option('select[name="make"]', label=MAKE)
+            time.sleep(4) # Extra time for the 'Model' list to load
+
+            print(f"Selecting {MODEL}...")
+            search_frame.wait_for_selector(f'select[name="model"] option:has-text("{MODEL}")', timeout=10000)
+            search_frame.select_option('select[name="model"]', label=MODEL)
+            time.sleep(2)
+
+            search_frame.click('input[type="submit"]')
+            print("Search submitted. Waiting for table...")
+            time.sleep(6)
+
+            rows = search_frame.locator("tr").all_inner_texts()
+            found = [r.strip() for r in rows if MAKE in r.upper() and MODEL in r.upper()]
+            
+            if found:
+                print(f"✅ Success! Found {len(found)} results.")
+                report = "\n".join(found)
+                requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=f"🎯 BOISE HIT:\n{report}".encode('utf-8'))
+            else:
+                print("🏁 Search completed, but no cars found in the table.")
+
+        except Exception as e:
+            print(f"⚠️ Hunt Snag: {e}")
+            page.screenshot(path="error_view.png")
+
+        browser.close()
+
+if __name__ == "__main__":
+    main()
