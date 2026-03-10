@@ -11,12 +11,13 @@ on:
         description: 'Vehicle Model (e.g., RAV4)'
         required: true
         default: 'RAV4'
+      # We keep these here but set required to false so they don't block you
       year_start:
-        description: 'Earliest Year'
+        description: 'Earliest Year (Optional)'
         required: false
         default: '1900'
       year_end:
-        description: 'Latest Year'
+        description: 'Latest Year (Optional)'
         required: false
         default: '2026'
 
@@ -27,7 +28,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          clean: true # This ensures a fresh environment every time
+          clean: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
