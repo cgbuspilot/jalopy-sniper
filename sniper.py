@@ -3,68 +3,70 @@ import requests
 import time
 from playwright.sync_api import sync_playwright
 
-# Inputs
 MAKE = os.getenv("INPUT_MAKE", "TOYOTA").strip().upper()
 MODEL = os.getenv("INPUT_MODEL", "RAV4").strip().upper()
-YEAR_START = int(os.getenv("INPUT_YEAR_START") or 1900)
-YEAR_END = int(os.getenv("INPUT_YEAR_END") or 2026)
 NTFY_TOPIC = "Jalopy-Sniper"
 
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1")
+        # Use a real screen size
+        context = browser.new_context(viewport={'width': 1280, 'height': 800})
         page = context.new_page()
         
-        print(f"🚀 Boise Test: {MAKE} {MODEL} (Filtering years: {YEAR_START}-{YEAR_END})")
-        page.goto("https://inventory.pickapartjalopyjungle.com/inventorylist.php", wait_until="networkidle")
+        print(f"🚀 Boise Deep-Scan: {MAKE} {MODEL}")
+        # We use the main portal to ensure cookies/sessions are set correctly
+        page.goto("https://inventory.pickapartjalopyjungle.com/", wait_until="networkidle")
         time.sleep(5)
 
+        # 1. FIND THE SEARCH FRAME
+        target = None
+        for frame in page.frames:
+            if frame.query_selector('select[name="location"]'):
+                target = frame
+                break
+        
+        if not target:
+            print("❌ Error: Search frame not found. Website might be down or changed.")
+            browser.close()
+            return
+
         try:
-            # 1. Select BOISE
-            print("Selecting Boise...")
-            page.select_option('select[name="location"]', label="BOISE")
-            time.sleep(2)
-
-            # 2. Select Make
-            print(f"Selecting {MAKE}...")
-            page.select_option('select[name="make"]', label=MAKE)
-            time.sleep(2)
-
-            # 3. Select Model
-            print(f"Selecting {MODEL}...")
-            page.select_option('select[name="model"]', label=MODEL)
-            time.sleep(2)
-
-            # 4. Search (The site doesn't ask for years here!)
-            page.click('input[type="submit"]')
-            time.sleep(5)
-
-            # 5. Extract and Filter results by year locally
-            rows = page.locator("tr").all_inner_texts()
-            found_matches = []
+            # 2. SELECT BOISE
+            print("Step 1: Selecting BOISE...")
+            target.wait_for_selector('select[name="location"]')
+            target.select_option('select[name="location"]', label="BOISE")
             
-            for text in rows:
-                parts = text.split()
-                if "YEAR" in text.upper() or len(parts) < 3: continue
-                
-                try:
-                    car_year = int(parts[0])
-                    # We check the year here in our own code!
-                    if YEAR_START <= car_year <= YEAR_END:
-                        found_matches.append(f"📍 BOISE: {text.strip()}")
-                except:
-                    continue
+            # 3. WAIT FOR MAKE TO POPULATE
+            print("Step 2: Waiting for 'Make' menu to wake up...")
+            time.sleep(4) 
+            target.wait_for_selector('select[name="make"]')
+            target.select_option('select[name="make"]', label=MAKE)
 
-            if found_matches:
-                print(f"✅ Found {len(found_matches)} results within your year range!")
-                report = "\n".join(found_matches)
+            # 4. WAIT FOR MODEL TO POPULATE
+            print(f"Step 3: Waiting for '{MODEL}' to appear...")
+            time.sleep(4)
+            target.wait_for_selector('select[name="model"]')
+            target.select_option('select[name="model"]', label=MODEL)
+
+            # 5. CLICK SEARCH
+            print("Step 4: Submitting search...")
+            target.click('input[type="submit"]')
+            time.sleep(6) # Give the result table plenty of time to render
+
+            # 6. SCRAPE
+            rows = target.locator("tr").all_inner_texts()
+            found = [r.strip() for r in rows if MAKE in r.upper()]
+            
+            if found:
+                print(f"✅ SUCCESS! Found {len(found)} results.")
+                report = "\n".join(found)
                 requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=f"🎯 BOISE HIT:\n{report}".encode('utf-8'))
             else:
-                print("🏁 No cars found matching that year range.")
+                print("🏁 No cars found in the result table.")
                 
         except Exception as e:
-            print(f"❌ Error during test: {e}")
+            print(f"⚠️ Search failed: {e}")
 
         browser.close()
 
