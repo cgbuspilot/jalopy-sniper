@@ -1,6 +1,21 @@
 name: Jalopy Sniper Dashboard
+
 on:
   workflow_dispatch:
+    inputs:
+      location:
+        description: 'Yard'
+        required: true
+        default: 'BOISE'
+      make:
+        description: 'Make'
+        required: true
+        default: 'TOYOTA'
+      model:
+        description: 'Model'
+        required: true
+        default: 'YARIS'
+
 jobs:
   hunt:
     runs-on: ubuntu-latest
@@ -16,4 +31,8 @@ jobs:
           pip install playwright requests
           playwright install chromium
       - name: Run Sniper
+        env:
+          INPUT_LOC: ${{ github.event.inputs.location }}
+          INPUT_MAKE: ${{ github.event.inputs.make }}
+          INPUT_MODEL: ${{ github.event.inputs.model }}
         run: python sniper.py
